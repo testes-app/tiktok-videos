@@ -11,7 +11,13 @@ Uso:
 """
 
 import os
+import sys
 import json
+
+# Forçar saída do terminal para UTF-8 no Windows para evitar erros com emojis
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+
 import textwrap
 import requests
 import random
@@ -29,6 +35,13 @@ from elevenlabs.client import ElevenLabs
 
 load_dotenv()
 
+MUSICAS = {
+    "cyberpunk": Path("assets/music/cyberpunk.mp3"),
+    "matrix":    Path("assets/music/matrix.mp3"),
+    "neon":      Path("assets/music/neon.mp3"),
+    "minimal":   Path("assets/music/minimal.mp3"),
+}
+
 TIKTOK_W, TIKTOK_H = 1080, 1920
 MAX_DURATION        = 58
 OUTPUT_DIR          = Path("output_tiktok")
@@ -38,29 +51,61 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 def limpar_output_antigo():
     """Remove arquivos temporarios e videos antigos antes de gerar novo conteudo."""
-    padroes = [
+    padroes_output = [
         "bg_video_*.mp4",
         "overlay_*.png", 
         "narracao.mp3",
         "roteiro.json",
         "tiktok_*.mp4",
+        "tiktok_*.jpg", # apaga capas/thumbnails
     ]
     total = 0
-    for padrao in padroes:
+    
+    # Limpa a pasta output_tiktok/
+    for padrao in padroes_output:
         for arquivo in OUTPUT_DIR.glob(padrao):
+            arquivo.unlink(missing_ok=True)
+            total += 1
+            
+    # Limpa lixo temporario gerado pelo MoviePy na pasta raiz do projeto
+    for arquivo in Path(".").glob("*TEMP_MPY*"):
+        try:
             arquivo.unlink()
             total += 1
+        except:
+            pass
+
     if total:
         print(f"[LIMPEZA] {total} arquivo(s) antigo(s) removido(s).")
     else:
         print("[LIMPEZA] Nenhum arquivo antigo encontrado.")
 
 TEMAS = [
+    # Tech
     "github repos mais estrelados esta semana",
     "ferramentas de IA que poucos conhecem",
     "linguagens de programacao em alta em 2026",
     "projetos open source incriveis para desenvolvedores",
     "dicas de produtividade para programadores",
+    # Curiosidades
+    "fatos perturbadores sobre o corpo humano",
+    "paises que deixaram de existir no seculo 20",
+    "fenomenos naturais que a ciencia nao explica",
+    "animais com habilidades sobrenaturais",
+    "lugares proibidos que voce nao pode visitar",
+    # Psicologia
+    "truques psicologicos usados em voce todo dia",
+    "habitos que destroem sua saude mental sem voce saber",
+    "como manipuladores identificam suas vitimas",
+    "segredos da linguagem corporal",
+    # Dinheiro
+    "erros financeiros que destroem sua vida",
+    "como os bilionarios pensam diferente",
+    "investimentos que a maioria desconhece",
+    "habitos de pessoas que saíram da pobreza",
+    # Historia
+    "fatos chocantes que nao ensinaram na escola",
+    "civilizacoes misteriosamente desaparecidas",
 ]
 
 # Queries de fallback tech para Pexels
@@ -182,19 +227,19 @@ def criar_fundo_gradiente_video(cor1="#0a0a1a", cor2="#1a0a2e", duracao=12.0) ->
 
 def gerar_roteiro(tema: str) -> dict:
     client = Groq(api_key=os.environ["GROQ_API_KEY"])
-    prompt = f"""Crie um roteiro para um TikTok de tecnologia de 60 segundos sobre: {tema}
+    prompt = f"""Crie um roteiro para um TikTok de 60 segundos sobre: {tema}
 
 Retorne APENAS JSON valido, sem markdown, sem backticks:
 {{
   "titulo": "titulo chamativo com emoji (max 60 chars)",
   "topicos": [
-    {{"tempo": "0-10s", "texto": "gancho inicial"}},
+    {{"tempo": "0-10s", "texto": "gancho CHOCANTE e URGENTE nos primeiros 3 segundos — use frases como: 'Para tudo!', '90% das pessoas não sabem disso...', 'Isso vai mudar sua vida...', 'Você está fazendo isso ERRADO...', 'Ninguém te contou isso...' — deve provocar curiosidade imediata e impedir o scroll"}},
     {{"tempo": "10-25s", "texto": "ponto 1"}},
     {{"tempo": "25-40s", "texto": "ponto 2"}},
     {{"tempo": "40-55s", "texto": "ponto 3"}},
     {{"tempo": "55-60s", "texto": "call to action"}}
   ],
-  "narracao_completa": "texto corrido para narrar em 60 segundos (max 150 palavras)",
+  "narracao_completa": "texto corrido para narrar em 60 segundos — OBRIGATÓRIO ter entre 130 e 150 palavras, ritmo pausado e natural, sem pressa — cada topico deve ser explicado com detalhes",
   "palavras_chave_imagem": ["frase em ingles slide1", "frase em ingles slide2", "frase em ingles slide3", "frase em ingles slide4", "frase em ingles slide5"],
   "hashtags": ["#tech", "#programacao", "#ia", "#python", "#github", "#developer", "#codigo", "#tecnologia"],
   "legenda_tiktok": "legenda completa para postar com hashtags"
@@ -217,11 +262,20 @@ Retorne APENAS JSON valido, sem markdown, sem backticks:
 
 # ── 2. Narracao via ElevenLabs ────────────────────────────────────────────────
 
-def gerar_narracao(texto: str) -> Path:
+VOZES_POOL = {
+    "cyberpunk": "JBFqnCBsd6RMkjVDRZzb",  # George - masculina grave
+    "matrix":    "EXAVITQu4vr4xnSDxMaL",  # Sarah - feminina calma
+    "neon":      "TX3LPaxmHKxFdv7VOQHJ",  # Liam - masculina jovem
+    "minimal":   "pNInz6obpgDQGcFmaJgB",  # Adam - masculina neutra
+}
+
+def gerar_narracao(texto: str, tema_cor: str = "cyberpunk") -> Path:
     client = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
+    voice_id = VOZES_POOL.get(tema_cor, "JBFqnCBsd6RMkjVDRZzb")
+    print(f"  [VOZ] Usando voice_id: {voice_id} (tema: {tema_cor})")
     audio = client.text_to_speech.convert(
         text=texto,
-        voice_id="JBFqnCBsd6RMkjVDRZzb",
+        voice_id=voice_id,
         model_id="eleven_multilingual_v2",
         output_format="mp3_44100_128",
     )
@@ -230,6 +284,27 @@ def gerar_narracao(texto: str) -> Path:
     with open(caminho, "wb") as f:
         f.write(audio_bytes)
     print(f"  [OK] Narracao salva: {caminho}")
+    return caminho
+
+def mixar_audio(narracao_path: Path, tema_cor: str) -> Path:
+    from moviepy import AudioFileClip, CompositeAudioClip
+    musica_path = MUSICAS.get(tema_cor)
+    if not musica_path or not musica_path.exists():
+        print("  [AVISO] Musica de fundo nao encontrada, usando apenas narracao.")
+        return narracao_path
+    print(f"  [MUSICA] Mixando com: {musica_path.name}")
+    narracao = AudioFileClip(str(narracao_path))
+    musica = AudioFileClip(str(musica_path))
+    if musica.duration < narracao.duration:
+        repeticoes = int(narracao.duration / musica.duration) + 1
+        from moviepy import concatenate_audioclips
+        musica = concatenate_audioclips([musica] * repeticoes)
+    musica = musica.subclipped(0, narracao.duration)
+    musica = musica.with_volume_scaled(0.15)
+    audio_final = CompositeAudioClip([narracao, musica])
+    caminho = OUTPUT_DIR / "narracao_mixada.mp3"
+    audio_final.write_audiofile(str(caminho), fps=44100)
+    print(f"  [OK] Audio mixado salvo: {caminho}")
     return caminho
 
 
@@ -492,7 +567,8 @@ def rodar_pipeline(tema=None, tema_cor="cyberpunk", fazer_upload=False, fazer_up
         json.dump(roteiro, f, ensure_ascii=False, indent=2)
 
     print("\n[2/3] Gerando narracao com ElevenLabs...")
-    audio = gerar_narracao(roteiro["narracao_completa"])
+    audio = gerar_narracao(roteiro["narracao_completa"], tema_cor)
+    audio = mixar_audio(audio, tema_cor)
 
     print("\n[3/3] Montando video com fundos Pexels...")
     video = montar_video(roteiro, audio, tema_cor)
