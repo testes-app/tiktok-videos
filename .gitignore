@@ -1,0 +1,14 @@
+# Arquivo com as chaves de API (NUNCA SUBIR)
+.env
+client_secrets.json
+
+# Vídeos, áudios e imagens gerados
+output_tiktok/
+*.mp4
+
+# Ambiente virtual
+.venv/
+
+# Arquivos temporários do Python
+__pycache__/
+*.pyc
